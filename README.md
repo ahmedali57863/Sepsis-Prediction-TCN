@@ -27,7 +27,7 @@ This project utilizes the **MIMIC-IV** (Medical Information Mart for Intensive C
 ## Project Team
 
 * **Muhammad Ahmed** - Co-Developer & Researcher
-* **[Partner's Name]** - Co-Developer & Researcher
+* **Umama Khalid** - Co-Developer & Researcher
 
 ---
 *Note: This repository is actively under development as part of an academic Final Year Project.*
