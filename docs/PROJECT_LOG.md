@@ -125,6 +125,28 @@ Plain-English version of the commands you ran:
   that `data/` and `sepsis_env/` never appeared in the list — our proof the
   `.gitignore` was actually working.
 
+### 0.9 A branch mix-up we found and fixed
+After pushing our scaffold, we noticed GitHub showed **two** branches —
+`main` and `master` — with `master` one commit ahead. Here's why: GitHub
+creates new repos with a default branch called `main`, but Git installed
+locally still defaults to the older convention, `master`. Every commit we
+made locally landed on `master` without us naming it explicitly, and the
+first `git push --set-upstream origin master` created a second branch on
+GitHub instead of updating the existing `main`.
+
+We fixed it by switching to `main` and merging `master` into it
+(`git checkout main` → `git merge master`) — since `master` only had
+commits `main` didn't, this was a **fast-forward merge**: git just moved
+`main`'s pointer forward, nothing to resolve, no conflicts possible. We
+pushed that, deleted the now-redundant `master` branch on GitHub
+(`git push origin --delete master`), and then force-deleted the leftover
+local copy (`git branch -D master`) once we confirmed all its commits were
+already safely inside `main`.
+
+**Lesson for next time:** always run `git branch` right after cloning or
+initializing a repo to see which branch name Git is actually using locally,
+and make sure it matches what GitHub expects, before the first push.
+
 **What's on GitHub right now:** `.gitignore`, `README.md`,
 `PROJECT_STRUCTURE.md`, `requirements.txt`, `test_setup.py`, and
 `docs/DATA_GOVERNANCE.md`. Zero patient data. That's the whole point.
