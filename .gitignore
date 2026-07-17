@@ -216,3 +216,47 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+
+# =====================================================================
+# ADD THESE LINES TO YOUR EXISTING .gitignore
+# (open the .gitignore already in your repo and paste these in — don't
+#  overwrite it, just merge)
+# =====================================================================
+
+# --- Patient data: NEVER committed, no exceptions, even derived/filtered ---
+data/
+*.csv
+*.parquet
+*.h5
+*.pkl
+!data/.gitkeep
+
+# --- Trained model weights / experiment logs ---
+checkpoints/
+*.pt
+*.pth
+runs/
+wandb/
+results/*.png
+results/*.json
+
+# --- Secrets / environment ---
+.env
+venv/
+.venv/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.egg-info/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+
+sepsis_env/
