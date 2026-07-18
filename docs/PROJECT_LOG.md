@@ -165,6 +165,7 @@ health data), and the tools list becomes the basis of the already-drafted
 **Goal:** out of hundreds of thousands of ICU patients, figure out exactly
 *which* ones had sepsis, and *when* it started. This becomes the label our
 model learns to predict.
+(94,458 total minus 32,899 = 61,559) this case32,899 = & conrolled = 61,559.
 
 **Why we're not writing this logic ourselves:** "Sepsis" isn't a single
 number in the database — it's officially defined (Sepsis-3 clinical
@@ -184,16 +185,102 @@ called `mimic_derived.sepsis3` on Google BigQuery. Rather than installing
 and managing a full database engine on your laptop just to re-run a query
 someone else already validated, we fetch the precomputed answer directly.
 
-**What's left before we can run anything:**
-1. Verify a Gmail address on your PhysioNet profile.
-2. Link that Google account to PhysioNet via the "Cloud" page.
-3. Request cloud access to MIMIC-IV for that linked account.
-4. Create a (free) Google Cloud project and enable the BigQuery API.
 
-*(This section will be rewritten once Phase 1 is actually done, with the
-real query we ran and what the cohort numbers turned out to be.)*
+### 1.0 A decision we had to make: matching the base paper's data type
+While reading the base paper (Apalak & Kiasaleh, 2024) closely, we noticed
+it doesn't actually predict sepsis from vitals/labs — it uses raw ECG
+waveform signals, extracting heart-rate-variability (HRV) features hourly
+and feeding those into the TCN. Our proposal, by contrast, was written
+around multi-variate vitals and labs (heart rate, blood pressure,
+temperature, lactate) from MIMIC-IV's tabular tables.
 
----
+We considered switching to match the base paper exactly (MIMIC-III +
+its Waveform Database, ECG signal processing), but decided against it:
+their own final cohort was only 65 sepsis patients — something they
+themselves list as their study's main limitation — because clean, matched
+ECG recordings are rare, whereas vitals/labs exist for nearly every ICU
+patient. Switching data type would also mean re-scoping our
+already-approved proposal and learning a new discipline (biosignal
+processing) under time pressure.
+
+**Decision:** we keep our original plan — multi-variate vitals/labs on
+MIMIC-IV. The base paper still guides our TCN architecture (residual
+blocks, dilated causal convolutions), hyperparameter search approach, and
+SHAP-based explainability method — only the input data type differs. This
+also becomes a legitimate framing for our paper's Related Work section:
+we extend the base paper's approach to a larger, more clinically universal
+data type, directly addressing the limitation the original authors named
+in their own Discussion section.
+
+
+### 1.1 Getting BigQuery access working, and exploring the sepsis3 table
+We linked a PhysioNet-verified Google account to Google Cloud, requested
+BigQuery access to MIMIC-IV, and confirmed it by querying
+`physionet-data.mimiciv_3_1_derived.sepsis3` directly — no local database
+needed, exactly as planned.
+
+We also corrected a number from our own proposal: we'd assumed roughly
+300,000 ICU records, but the real, verified figures for this MIMIC-IV
+release are 364,627 patients, 546,028 hospital admissions, and 94,458
+actual ICU stays. The "300,000+" figure in our proposal was an imprecise
+placeholder, not the real ICU stay count — this is now corrected using
+the accurate number, straight from PhysioNet's own documentation.
+
+The `sepsis3` table itself contains 32,899 rows, not all 94,458 ICU stays
+— because Sepsis-3 can only be evaluated for stays where a suspected
+infection (antibiotics + culture test) happened in the first place. Its
+columns give us our sepsis label (`sepsis3`, true/false), the SOFA score
+and its six organ-system sub-scores, and the timestamps needed to define
+sepsis onset. This is our label source only — the actual vitals/labs
+feature data comes from separate tables (`chartevents`, `labevents`),
+still to be extracted in the next step.
+
+
+### 1.2 Deciding the case:control ratio
+Rather than picking an artificial fixed ratio (like the base paper's
+1:10), we decided to keep the natural class distribution — all 32,899
+confirmed sepsis cases against all 61,559 controls. This follows a
+commitment already made in our own proposal's Feasibility Study section:
+using Cost-Sensitive Learning (class weighting inside the training loss)
+specifically so we would not need to artificially shrink the dataset.
+We'll only revisit this if the full-size dataset proves too heavy for
+local hardware later on, and even then we'd scale down proportionally
+rather than force an artificial ratio.
+
+
+### 1.3 Applying the 24-hour minimum stay filter
+We required at least 24 hours of ICU time (matching our proposal's stated
+24-hour sliding window design) for both cases and controls. 
+Result:
+29,779 of 32,899 cases (90.5%) and 45,893 of 61,559 controls (74.6%)
+cleared this bar. 
+Sepsis cases cleared it at a noticeably higher rate —
+consistent with the base paper's own finding that septic patients have
+substantially longer ICU stays than non-septic ones.
+Base paper found directly: they reported "the ICU length of stay of sepsis patients is 2.3 times longer than that of the control patients.and above resulted data is independently confirming a known clinical pattern.
+
+
+### 1.4 Removing duplicate patient visits — the final cohort
+Combined the 24-hour minimum stay filter with a "keep only each patient's
+earliest ICU stay" rule, to prevent the same patient appearing in both
+training and test data later. Final result: 20,394 confirmed sepsis cases
+and 32,053 controls — 52,447 ICU stays total. This is our real cohort
+size, replacing every earlier placeholder number, and the figure that
+goes into the paper's Table I.
+
+
+### 1.5 Building the final "who + when" cohort table
+Combined every previous decision into one query: tag each stay as case/control,
+apply the 24-hour minimum stay filter, keep only each patient's earliest visit,
+and assign an anchor_time to every row — sofa_time for cases (their real onset),
+and intime + 24 hours for controls (following the same approach the base paper
+used: extracting from the start of the recording rather than an arbitrary
+midpoint). Verified counts (20,394 case / 32,053 control) exactly matched our
+earlier milestone, confirming the logic is correct. Saved as a permanent
+BigQuery table (cohort.final_cohort) rather than re-running the query each
+time — this table is now the foundation for the next step: joining against
+actual vitals and labs data.
+
 
 ## Glossary (plain English, for panel Q&A)
 
@@ -226,3 +313,21 @@ real query we ran and what the cohort numbers turned out to be.)*
   (here, hour-by-hour vital signs).
 - **SHAP:** a method for explaining *why* a model made a specific
   prediction, by scoring how much each input feature contributed.
+
+
+
+
+  What we've actually done, start to finish, in plain language
+
+1. Got legal, credentialed access to real ICU patient data (MIMIC-IV) through PhysioNet.
+2. Instead of downloading and running our own database, connected directly to Google's hosted copy (BigQuery) — faster, and PhysioNet's officially recommended route.
+3. Found a ready-made list of confirmed sepsis patients (sepsis3) — built from trusted, published medical logic (Sepsis-3 criteria), not something we wrote ourselves.
+4. Realized that list only contains confirmed sepsis cases, not a true/false table — so "everyone else" (not on the list) became our raw control pool.
+5. Corrected an outdated guess from the proposal (300,000+) with the real number: 94,458 actual ICU stays.
+6. Decided to keep the real-world sepsis rate instead of artificially balancing the data, matching a promise already made in the proposal.
+7. Removed patients whose ICU stay was too short to build a usable time window (under 24 hours).
+8. Removed repeat visits from the same patient, keeping only their first stay — to stop the same person accidentally showing up in both training and testing later (data leakage).
+9. Landed on the real, final group: 20,394 sepsis patients, 32,053 non-sepsis patients.
+10. Found the exact moment sepsis was confirmed for each case patient (sofa_time), and proved it was correct by matching it against the base paper's own published time window.
+11. Gave control patients an equivalent "starting point in time" to measure from, since they don't have a sepsis onset — again borrowing the same approach the base paper used.
+12. Combined all of that into one single table — every patient, tagged case or control, each with their own reference point in time.
